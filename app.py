@@ -48,7 +48,7 @@ if uploaded_file is not None:
         numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
         selected_features = st.sidebar.multiselect("Select EEG Features", numeric_cols, default=numeric_cols)
         classifier_name = st.sidebar.selectbox("Select Classifier", ["KNN", "SVM", "Random Forest", "Neural Network"])
-        test_size = st.sidebar.slider("Test Size (Ratio of data for testing)", 0.1, 0.5, 0.2, step=0.05)
+        test_size = st.sidebar.slider("Test Size (Ratio of data for testing)", 0.1, 0.95, 0.2, step=0.05)
 
         run_button = st.sidebar.button("🚀 Run Classification")
 
