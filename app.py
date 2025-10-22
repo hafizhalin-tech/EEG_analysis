@@ -15,6 +15,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
+from sklearn.inspection import permutation_importance
 
 # Streamlit setup
 st.set_page_config(page_title="EEG Emotion Classifier", layout="wide")
@@ -47,7 +48,7 @@ if uploaded_file is not None:
         numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
         selected_features = st.sidebar.multiselect("Select EEG Features", numeric_cols, default=numeric_cols)
         classifier_name = st.sidebar.selectbox("Select Classifier", ["KNN", "SVM", "Random Forest", "Neural Network"])
-        test_size = st.sidebar.slider("Test Size (Ratio of data for testing)", 0.1, 0.95, 0.2, step=0.05)
+        test_size = st.sidebar.slider("Test Size (Ratio of data for testing)", 0.1, 0.5, 0.2, step=0.05)
 
         run_button = st.sidebar.button("🚀 Run Classification")
 
@@ -79,7 +80,7 @@ if uploaded_file is not None:
                         model = KNeighborsClassifier()
                         param_grid = {"n_neighbors": [3, 5, 7, 9]}
                     elif classifier_name == "SVM":
-                        model = SVC()
+                        model = SVC(probability=True)
                         param_grid = {"C": [0.1, 1, 10], "kernel": ["linear", "rbf"]}
                     elif classifier_name == "Random Forest":
                         model = RandomForestClassifier(random_state=42)
@@ -127,7 +128,6 @@ if uploaded_file is not None:
                     grid_df = pd.DataFrame(grid.cv_results_)
 
                     if len(param_grid.keys()) == 1:
-                        # 1D plot
                         param_name = list(param_grid.keys())[0]
                         plt.figure(figsize=(6, 4))
                         plt.plot(grid_df["param_" + param_name], grid_df["mean_test_score"], marker='o')
@@ -136,7 +136,6 @@ if uploaded_file is not None:
                         plt.title(f"{classifier_name} Parameter Tuning")
                         st.pyplot(plt)
                     else:
-                        # Heatmap for 2D parameter grids
                         params = list(param_grid.keys())
                         try:
                             pivot_table = grid_df.pivot_table(
@@ -149,7 +148,6 @@ if uploaded_file is not None:
                             plt.title(f"{classifier_name} Grid Search Accuracy")
                             st.pyplot(plt)
                         except Exception:
-                            st.warning("⚠️ Too many parameters for 2D visualization; showing line plot instead.")
                             plt.figure(figsize=(6, 4))
                             plt.plot(grid_df["mean_test_score"], marker='o')
                             plt.title("Mean CV Accuracy per Combination")
@@ -165,16 +163,27 @@ if uploaded_file is not None:
                     plt.ylabel("Actual")
                     st.pyplot(plt)
 
-                    # ======== Feature Importance (RF only) ========
-                    if classifier_name == "Random Forest":
-                        st.subheader("🌟 Feature Importance")
-                        importances = best_model.feature_importances_
+                    # ======== Feature Importance (All Models) ========
+                    st.subheader("🌟 Feature Importance")
+
+                    try:
+                        if hasattr(best_model, "feature_importances_"):
+                            # Tree-based models (Random Forest)
+                            importances = best_model.feature_importances_
+                        else:
+                            # Model-agnostic feature importance
+                            imp_result = permutation_importance(best_model, X_test, y_test, scoring="accuracy", n_repeats=10)
+                            importances = imp_result.importances_mean
+
                         sorted_idx = np.argsort(importances)[::-1]
                         plt.figure(figsize=(8, 4))
                         plt.bar(range(len(importances)), importances[sorted_idx])
                         plt.xticks(range(len(importances)), np.array(selected_features)[sorted_idx], rotation=90)
+                        plt.title(f"{classifier_name} Feature Importance")
                         plt.tight_layout()
                         st.pyplot(plt)
+                    except Exception as e:
+                        st.warning(f"⚠️ Feature importance could not be computed: {e}")
 
                 except Exception as e:
                     st.error(f"❌ Error during classification: {e}")
