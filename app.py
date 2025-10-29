@@ -87,7 +87,7 @@ if uploaded_file is not None:
                         param_grid = {"n_estimators": [50, 100, 200], "max_depth": [3, 5, 7, None]}
                     else:
                         model = MLPClassifier(max_iter=1000, random_state=42)
-                        param_grid = {"hidden_layer_sizes": [(50,), (100,), (100, 50)], "activation": ["relu", "tanh"]}
+                        param_grid = {"hidden_layer_sizes": [(50,), (100,), (100, 50)], "activation": ["relu", "tanh", "logistic"]}
 
                     # ======== Grid Search ========
                     st.info("⏳ Running Grid Search... please wait...")
