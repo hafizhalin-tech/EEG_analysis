@@ -16,19 +16,27 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.multioutput import MultiOutputClassifier
 from sklearn.inspection import permutation_importance
 
-# Streamlit setup
+# -----------------------------------------------
+# Streamlit Page Setup
+# -----------------------------------------------
 st.set_page_config(page_title="EEG Multi-Label Classifier", layout="wide")
 st.title("🧠 EEG Multi-Label EEG Classification")
-st.write("Upload your EEG dataset, choose multiple label columns, select classifier, and view performance and feature importance.")
+st.write(
+    """
+    Upload your EEG dataset, choose multiple label columns, 
+    select features, adjust training/testing ratio, and visualize 
+    model performance and feature importance.
+    """
+)
 
-# ===============================================
+# -----------------------------------------------
 # File Upload
-# ===============================================
+# -----------------------------------------------
 uploaded_file = st.file_uploader("📤 Upload EEG CSV or XLSX File", type=["csv", "xlsx"])
 
 if uploaded_file is not None:
     try:
-        # Load the file
+        # Load file automatically based on extension
         if uploaded_file.name.endswith(".csv"):
             df = pd.read_csv(uploaded_file)
         else:
@@ -37,21 +45,21 @@ if uploaded_file is not None:
         st.success(f"✅ File uploaded successfully! Shape: {df.shape[0]} × {df.shape[1]}")
         st.dataframe(df.head())
 
-        # ===============================================
+        # -----------------------------------------------
         # Sidebar Settings
-        # ===============================================
+        # -----------------------------------------------
         st.sidebar.header("⚙️ Model Settings")
 
         all_columns = df.columns.tolist()
 
-        # Label selection (allow numeric or non-numeric)
+        # Label selection (can be numeric or text)
         label_cols = st.sidebar.multiselect(
             "🎯 Select Label Column(s)",
             all_columns,
-            help="Select one or more columns to use as label(s). You can select numeric or text columns."
+            help="Select one or more columns to use as labels."
         )
 
-        # Feature selection (exclude label columns)
+        # Feature selection (exclude labels)
         available_features = [c for c in all_columns if c not in label_cols]
         selected_features = st.sidebar.multiselect(
             "📈 Select Feature Columns",
@@ -67,18 +75,19 @@ if uploaded_file is not None:
         test_size = st.sidebar.slider("Test Size (Ratio for Testing)", 0.1, 0.95, 0.2, step=0.05)
         run_button = st.sidebar.button("🚀 Run Classification")
 
+        # -----------------------------------------------
+        # Run Classification
+        # -----------------------------------------------
         if run_button:
             if len(label_cols) == 0:
                 st.warning("⚠️ Please select at least one label column.")
                 st.stop()
 
-            # ===============================================
-            # Data Preparation
-            # ===============================================
+            # Prepare data
             X = df[selected_features]
             y = df[label_cols].copy()
 
-            # Encode each label column (if needed)
+            # Encode categorical labels
             label_encoders = {}
             for col in label_cols:
                 if y[col].dtype == 'object' or y[col].dtype.name == 'category':
@@ -86,17 +95,19 @@ if uploaded_file is not None:
                     y[col] = le.fit_transform(y[col].astype(str))
                     label_encoders[col] = le
 
+            # Train-test split
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y, test_size=test_size, random_state=42
             )
 
+            # Normalize features
             scaler = StandardScaler()
             X_train = scaler.fit_transform(X_train)
             X_test = scaler.transform(X_test)
 
-            # ===============================================
-            # Model Selection
-            # ===============================================
+            # -----------------------------------------------
+            # Model and Parameter Grid
+            # -----------------------------------------------
             if classifier_name == "KNN":
                 base_model = KNeighborsClassifier()
                 param_grid = {"estimator__n_neighbors": [3, 5, 7, 9]}
@@ -113,17 +124,20 @@ if uploaded_file is not None:
                     "estimator__activation": ["relu", "tanh"]
                 }
 
-            # Multi-label wrapper
+            # Wrap for multi-label
             model = MultiOutputClassifier(base_model)
 
+            # -----------------------------------------------
+            # Grid Search for Parameter Tuning
+            # -----------------------------------------------
             st.info("⏳ Running Grid Search (this may take some time)...")
             grid = GridSearchCV(model, param_grid, cv=3, scoring="accuracy", n_jobs=-1, return_train_score=True)
             grid.fit(X_train, y_train)
             best_model = grid.best_estimator_
 
-            # ===============================================
+            # -----------------------------------------------
             # Evaluation
-            # ===============================================
+            # -----------------------------------------------
             y_pred = pd.DataFrame(best_model.predict(X_test), columns=y.columns)
 
             results = []
@@ -135,16 +149,41 @@ if uploaded_file is not None:
                 results.append([col, acc, prec, rec, f1])
 
             metrics_df = pd.DataFrame(results, columns=["Label", "Accuracy", "Precision", "Recall", "F1-Score"])
+
+            # 🔧 Fix: convert safely for formatting
+            for col in ["Accuracy", "Precision", "Recall", "F1-Score"]:
+                metrics_df[col] = pd.to_numeric(metrics_df[col], errors="coerce")
+            metrics_df = metrics_df.fillna(0)
+
             st.subheader("🏆 Model Performance (Per Label)")
             st.dataframe(metrics_df.style.format("{:.3f}"))
 
             st.write(f"**Best Parameters:** {grid.best_params_}")
 
-            # ===============================================
-            # Accuracy Summary Chart
-            # ===============================================
-            st.subheader("📊 Average Performance Across Labels")
+            # -----------------------------------------------
+            # Training vs Testing Accuracy Visualization
+            # -----------------------------------------------
+            st.subheader("📊 Training vs Testing Accuracy")
+
+            train_scores = grid.cv_results_["mean_train_score"]
+            test_scores = grid.cv_results_["mean_test_score"]
+            params = list(range(len(train_scores)))
+
+            fig, ax = plt.subplots(figsize=(6, 4))
+            ax.plot(params, train_scores, label="Training", marker='o')
+            ax.plot(params, test_scores, label="Testing", marker='o')
+            ax.set_xlabel("Grid Search Iteration")
+            ax.set_ylabel("Accuracy")
+            ax.legend()
+            ax.grid(True)
+            st.pyplot(fig)
+
+            # -----------------------------------------------
+            # Average Accuracy / F1 Comparison
+            # -----------------------------------------------
+            st.subheader("📈 Average Performance Across Labels")
             avg_scores = metrics_df[["Accuracy", "Precision", "Recall", "F1-Score"]].mean().to_dict()
+
             fig, ax = plt.subplots(figsize=(6, 4))
             sns.barplot(x=list(avg_scores.keys()), y=list(avg_scores.values()), palette="viridis", ax=ax)
             for i, v in enumerate(avg_scores.values()):
@@ -152,9 +191,9 @@ if uploaded_file is not None:
             ax.set_ylim(0, 1)
             st.pyplot(fig)
 
-            # ===============================================
+            # -----------------------------------------------
             # Feature Importance
-            # ===============================================
+            # -----------------------------------------------
             st.subheader("🌟 Feature Importance (Permutation-based)")
             try:
                 base = best_model.estimators_[0]
