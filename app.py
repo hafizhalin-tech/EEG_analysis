@@ -1,5 +1,5 @@
 # ===============================================
-# EEG Emotion Classification Web App (Streamlit)
+# EEG Emotion Multi-Label Classification (Streamlit)
 # ===============================================
 import streamlit as st
 import pandas as pd
@@ -17,79 +17,83 @@ from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
 from sklearn.inspection import permutation_importance
 
-# Streamlit setup
-st.set_page_config(page_title="EEG Emotion Classifier", layout="wide")
+# Streamlit config
+st.set_page_config(page_title="EEG Multi-Label Classifier", layout="wide")
 st.title("🧠 EEG Emotion Classification")
-st.write("Upload EEG data, select features and classifier, then visualize results interactively.")
+st.write("Upload EEG data, select multiple labels, choose classifiers, and visualize the results interactively.")
 
-# ===============================
+# ===============================================
 # File Upload
-# ===============================
+# ===============================================
 uploaded_file = st.file_uploader("📤 Upload EEG CSV or XLSX File", type=["csv", "xlsx"])
 
 if uploaded_file is not None:
     try:
-        # Read data
+        # Load file
         if uploaded_file.name.endswith(".csv"):
             df = pd.read_csv(uploaded_file)
         else:
             df = pd.read_excel(uploaded_file)
 
         st.success(f"✅ File uploaded successfully! Shape: {df.shape[0]} rows × {df.shape[1]} columns")
-
-        # Display preview
         st.dataframe(df.head())
 
-        # ===========================================
+        # ===============================================
         # Sidebar - Settings
-        # ===========================================
+        # ===============================================
         st.sidebar.header("⚙️ Model Settings")
 
-        # Automatically get columns
         all_columns = df.columns.tolist()
         numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
 
-        # Label column selector
-        label_col = st.sidebar.selectbox("Select Label Column", all_columns)
+        # Label selection (multi-select)
+        label_cols = st.sidebar.multiselect(
+            "Select Label Column(s)",
+            [col for col in all_columns if col not in numeric_cols],
+            help="You can select multiple label columns; they will be combined."
+        )
 
         # Feature selection
-        default_features = [col for col in numeric_cols if col != label_col]
+        default_features = numeric_cols.copy()
         selected_features = st.sidebar.multiselect(
             "Select EEG Features", numeric_cols, default=default_features
         )
 
-        # Classifier selector
         classifier_name = st.sidebar.selectbox(
             "Select Classifier", ["KNN", "SVM", "Random Forest", "Neural Network"]
         )
 
-        # Train/Test ratio
-        test_size = st.sidebar.slider("Test Size (Ratio of data for testing)", 0.1, 0.5, 0.2, step=0.05)
+        test_size = st.sidebar.slider("Test Size (Ratio for Testing)", 0.1, 0.95, 0.2, step=0.05)
 
-        # Run button
         run_button = st.sidebar.button("🚀 Run Classification")
 
         if run_button:
             try:
-                # ======== Data Preparation ========
+                # ================== Data Preparation ==================
                 X = df[selected_features]
-                y = df[label_col]
 
-                # Encode labels
+                # Handle multi-labels
+                if len(label_cols) == 0:
+                    st.warning("⚠️ Please select at least one label column.")
+                    st.stop()
+
+                # Combine selected label columns into one
+                y = df[label_cols].astype(str).agg('_'.join, axis=1)
+
                 le = LabelEncoder()
                 y = le.fit_transform(y)
 
-                # Split data
+                # Split dataset
                 X_train, X_test, y_train, y_test = train_test_split(
                     X, y, test_size=test_size, random_state=42
                 )
 
-                # Scale
+                # Normalize
                 scaler = StandardScaler()
                 X_train = scaler.fit_transform(X_train)
                 X_test = scaler.transform(X_test)
 
-                # ======== Model & Parameter Grid ========
+                # ================== Model Selection ==================
                 if classifier_name == "KNN":
                     model = KNeighborsClassifier()
                     param_grid = {"n_neighbors": [3, 5, 7, 9]}
@@ -101,15 +105,18 @@ if uploaded_file is not None:
                     param_grid = {"n_estimators": [50, 100, 200], "max_depth": [3, 5, 7, None]}
                 else:
                     model = MLPClassifier(max_iter=1000, random_state=42)
-                    param_grid = {"hidden_layer_sizes": [(50,), (100,), (100, 50)], "activation": ["relu", "tanh"]}
+                    param_grid = {
+                        "hidden_layer_sizes": [(50,), (100,), (100, 50)],
+                        "activation": ["relu", "tanh"]
+                    }
 
-                # ======== Grid Search ========
+                # ================== Grid Search ==================
                 st.info("⏳ Running Grid Search... please wait...")
                 grid = GridSearchCV(model, param_grid, cv=3, scoring="accuracy", n_jobs=-1, return_train_score=True)
                 grid.fit(X_train, y_train)
                 best_model = grid.best_estimator_
 
-                # ======== Performance ========
+                # ================== Performance ==================
                 y_pred = best_model.predict(X_test)
                 y_pred_train = best_model.predict(X_train)
 
@@ -128,21 +135,21 @@ if uploaded_file is not None:
 
                 st.write(f"**Best Parameters:** {grid.best_params_}")
 
-                # ======== Accuracy Comparison ========
+                # ================== Accuracy Plot ==================
                 st.subheader("📊 Training vs Testing Accuracy")
                 fig, ax = plt.subplots(figsize=(6, 4))
-                sns.barplot(x=["Training", "Testing"], y=[acc_train, acc_test], palette="Blues", ax=ax)
-                ax.set_ylim(0, 1)
+                sns.barplot(x=["Training", "Testing"], y=[acc_train, acc_test], palette="coolwarm", ax=ax)
                 for i, v in enumerate([acc_train, acc_test]):
                     ax.text(i, v + 0.01, f"{v:.2f}", ha='center')
+                ax.set_ylim(0, 1)
                 st.pyplot(fig)
 
-                # ======== Parameter Tuning Visual ========
-                st.subheader("🔍 Parameter Tuning Results (Mean CV Accuracy)")
+                # ================== Grid Search Visualization ==================
+                st.subheader("🔍 Grid Search Mean CV Accuracy")
                 grid_df = pd.DataFrame(grid.cv_results_)
-
-                if len(param_grid.keys()) == 1:
-                    param_name = list(param_grid.keys())[0]
+                params = list(param_grid.keys())
+                if len(params) == 1:
+                    param_name = params[0]
                     plt.figure(figsize=(6, 4))
                     plt.plot(grid_df["param_" + param_name], grid_df["mean_test_score"], marker='o')
                     plt.xlabel(param_name)
@@ -150,42 +157,40 @@ if uploaded_file is not None:
                     plt.title(f"{classifier_name} Parameter Tuning")
                     st.pyplot(plt)
                 else:
-                    params = list(param_grid.keys())
                     try:
-                        pivot_table = grid_df.pivot_table(
+                        pivot = grid_df.pivot_table(
                             values="mean_test_score",
                             index="param_" + params[0],
                             columns="param_" + params[1]
                         )
                         plt.figure(figsize=(6, 4))
-                        sns.heatmap(pivot_table, annot=True, cmap="Blues")
+                        sns.heatmap(pivot, annot=True, cmap="Blues")
                         plt.title(f"{classifier_name} Grid Search Accuracy")
                         st.pyplot(plt)
-                    except Exception:
+                    except:
                         plt.figure(figsize=(6, 4))
                         plt.plot(grid_df["mean_test_score"], marker='o')
                         plt.title("Mean CV Accuracy per Combination")
                         st.pyplot(plt)
 
-                # ======== Confusion Matrix ========
+                # ================== Confusion Matrix ==================
                 st.subheader("🔹 Confusion Matrix")
                 cm = confusion_matrix(y_test, y_pred)
-                plt.figure(figsize=(5, 4))
+                plt.figure(figsize=(6, 5))
                 sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
                             xticklabels=le.classes_, yticklabels=le.classes_)
                 plt.xlabel("Predicted")
                 plt.ylabel("Actual")
+                plt.title(f"{classifier_name} Confusion Matrix")
                 st.pyplot(plt)
 
-                # ======== Feature Importance (All Models) ========
+                # ================== Feature Importance ==================
                 st.subheader("🌟 Feature Importance")
 
                 try:
                     if hasattr(best_model, "feature_importances_"):
-                        # Tree-based models (Random Forest)
                         importances = best_model.feature_importances_
                     else:
-                        # Model-agnostic feature importance
                         imp_result = permutation_importance(best_model, X_test, y_test, scoring="accuracy", n_repeats=10)
                         importances = imp_result.importances_mean
 
@@ -204,5 +209,6 @@ if uploaded_file is not None:
 
     except Exception as e:
         st.error(f"❌ Error reading file: {e}")
+
 else:
     st.info("👆 Please upload a CSV or XLSX EEG dataset to start.")
