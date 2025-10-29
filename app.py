@@ -150,13 +150,29 @@ if uploaded_file is not None:
 
             metrics_df = pd.DataFrame(results, columns=["Label", "Accuracy", "Precision", "Recall", "F1-Score"])
 
-            # 🔧 Fix: convert safely for formatting
+            # ===============================================
+            # Safe display for metrics
+            # ===============================================
+            st.subheader("🏆 Model Performance (Per Label)")
+
+            # Convert all to numeric safely
             for col in ["Accuracy", "Precision", "Recall", "F1-Score"]:
                 metrics_df[col] = pd.to_numeric(metrics_df[col], errors="coerce")
+
             metrics_df = metrics_df.fillna(0)
 
-            st.subheader("🏆 Model Performance (Per Label)")
-            st.dataframe(metrics_df.style.format("{:.3f}"))
+            # Safe formatting
+            def safe_fmt(val):
+                try:
+                    return f"{float(val):.3f}"
+                except Exception:
+                    return str(val)
+
+            styled_df = metrics_df.copy()
+            for c in ["Accuracy", "Precision", "Recall", "F1-Score"]:
+                styled_df[c] = styled_df[c].apply(safe_fmt)
+
+            st.dataframe(styled_df)
 
             st.write(f"**Best Parameters:** {grid.best_params_}")
 
