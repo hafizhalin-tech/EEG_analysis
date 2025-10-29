@@ -19,7 +19,7 @@ from sklearn.inspection import permutation_importance
 
 # Streamlit setup
 st.set_page_config(page_title="EEG Emotion Classifier", layout="wide")
-st.title("🧠 EEG Emotion Classification Web App")
+st.title("🧠 EEG Emotion Classification")
 st.write("Upload EEG data, select features and classifier, then visualize results interactively.")
 
 # ===============================
